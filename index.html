@@ -1,265 +1,123 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Basic Pac-Man Bluetooth</title>
+  <title>Simple Bluetooth Controller</title>
   <style>
     body {
       background: black;
+      text-align: center;
       color: white;
       font-family: Arial;
-      text-align: center;
     }
     canvas {
-      background: black;
+      background: #111;
       display: block;
-      margin: 10px auto;
-      border: 2px solid white;
+      margin: 20px auto;
+      border: 2px solid #333;
     }
     button {
       background: #4CAF50;
       color: white;
       border: none;
       padding: 10px 20px;
-      margin: 5px;
+      margin: 10px;
       border-radius: 5px;
       cursor: pointer;
     }
     #status {
       color: #FF0;
+      height: 20px;
     }
   </style>
 </head>
 <body>
-  <h1>Pac-Man Bluetooth</h1>
-  <div id="score">SCORE: 0</div>
+  <h1>Bluetooth Controller Test</h1>
   <div id="status">Press CONNECT to start</div>
   <button id="connectBtn">CONNECT</button>
-  <button id="keyboardBtn">USE KEYBOARD</button>
-  <canvas id="gameCanvas" width="560" height="620"></canvas>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div id="data">Waiting for data...</div>
 
   <script>
-    // Game constants
-    const CELL_SIZE = 20;
-    const GRID_COLS = 28, GRID_ROWS = 31;
-    const WALL_COLOR = '#0000FF';
-    const PELLET_COLOR = '#FFFFFF';
-    const PLAYER_COLOR = '#FFFF00';
-
-    // Game state
-    const player = { x: 14, y: 23 };
-    let score = 0;
-    let gameActive = false;
-    let useBluetooth = false;
-    
-    // Simple maze (1 = path, 0 = wall)
-    const maze = Array(GRID_ROWS).fill().map(() => Array(GRID_COLS).fill(1));
-    
-    // Add walls - basic layout
-    for (let y = 0; y < GRID_ROWS; y++) {
-      for (let x = 0; x < GRID_COLS; x++) {
-        if (x === 0 || y === 0 || x === GRID_COLS-1 || y === GRID_ROWS-1) {
-          maze[y][x] = 0; // Border walls
-        }
-      }
-    }
-
-    // Initialize pellets (1 = pellet exists)
-    const pellets = Array(GRID_ROWS).fill().map(() => Array(GRID_COLS).fill(1));
-    
     // Canvas setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const scoreDisplay = document.getElementById('score');
     const statusDisplay = document.getElementById('status');
+    const dataDisplay = document.getElementById('data');
 
-    // Bluetooth variables
-    let serialPort;
-    let reader;
-    let xVal = 0, yVal = 0;
+    // Player dot
+    const player = {
+      x: 200,
+      y: 200,
+      size: 20,
+      color: '#FFFF00'
+    };
 
-    // Initialize game
-    function initGame() {
-      score = 0;
-      gameActive = true;
-      scoreDisplay.textContent = `SCORE: ${score}`;
-      statusDisplay.textContent = useBluetooth ? 
-        "Tilt Arduino to move" : "Use arrow keys";
-      drawGame();
+    // Draw player
+    function drawPlayer() {
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Clear and redraw
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawPlayer();
     }
 
     // Bluetooth connection
     async function connectBluetooth() {
       try {
         if (!navigator.serial) {
-          throw new Error("Web Serial API not supported");
+          throw new Error("Browser doesn't support Web Serial API");
         }
         
-        serialPort = await navigator.serial.requestPort();
-        await serialPort.open({ baudRate: 9600 });
-        reader = serialPort.readable.getReader();
-        useBluetooth = true;
-        initGame();
-        readBluetoothData();
-      } catch (err) {
-        statusDisplay.textContent = `Bluetooth error: ${err.message}`;
-        useBluetooth = false;
-      }
-    }
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        const reader = port.readable.getReader();
+        
+        statusDisplay.textContent = "Connected! Tilt your Arduino";
+        dataDisplay.textContent = "Receiving data...";
 
-    async function readBluetoothData() {
-      try {
+        // Continuous data reading
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
+          
           const text = new TextDecoder().decode(value).trim();
+          dataDisplay.textContent = `Raw Data: ${text}`;
+          
+          // Simple X,Y data parsing (format "X,Y")
           const [x, y] = text.split(',').map(Number);
+          
           if (!isNaN(x) && !isNaN(y)) {
-            xVal = x;
-            yVal = y;
+            // Map Arduino values to screen position
+            player.x = mapValue(x, -1000, 1000, 0, canvas.width);
+            player.y = mapValue(y, -1000, 1000, 0, canvas.height);
+            
+            // Keep player on screen
+            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+            
+            draw();
           }
         }
       } catch (err) {
-        statusDisplay.textContent = "Bluetooth disconnected";
-        useBluetooth = false;
+        statusDisplay.textContent = `Error: ${err.message}`;
       }
     }
 
-    // Keyboard fallback
-    function useKeyboard() {
-      useBluetooth = false;
-      initGame();
+    // Helper function to map values
+    function mapValue(value, inMin, inMax, outMin, outMax) {
+      return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
     }
 
-    // Movement logic
-    function getMovement() {
-      if (useBluetooth) {
-        const DEADZONE = 500;
-        if (Math.abs(xVal) < DEADZONE && Math.abs(yVal) < DEADZONE) {
-          return { dx: 0, dy: 0 };
-        }
-        return {
-          dx: Math.sign(xVal),
-          dy: Math.sign(yVal)
-        };
-      } else {
-        // Keyboard controls (added in event listener)
-        return { dx: 0, dy: 0 };
-      }
-    }
-
-    // Game drawing
-    function drawGame() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw walls
-      maze.forEach((row, y) => {
-        row.forEach((cell, x) => {
-          if (cell === 0) {
-            ctx.fillStyle = WALL_COLOR;
-            ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-          }
-        });
-      });
-      
-      // Draw pellets
-      pellets.forEach((row, y) => {
-        row.forEach((pellet, x) => {
-          if (pellet === 1) {
-            ctx.fillStyle = PELLET_COLOR;
-            ctx.beginPath();
-            ctx.arc(
-              x * CELL_SIZE + CELL_SIZE/2,
-              y * CELL_SIZE + CELL_SIZE/2,
-              3, 0, Math.PI * 2
-            );
-            ctx.fill();
-          }
-        });
-      });
-      
-      // Draw player
-      ctx.fillStyle = PLAYER_COLOR;
-      ctx.beginPath();
-      ctx.arc(
-        player.x * CELL_SIZE + CELL_SIZE/2,
-        player.y * CELL_SIZE + CELL_SIZE/2,
-        CELL_SIZE/2 - 2, 0.2 * Math.PI, 1.8 * Math.PI
-      );
-      ctx.lineTo(
-        player.x * CELL_SIZE + CELL_SIZE/2,
-        player.y * CELL_SIZE + CELL_SIZE/2
-      );
-      ctx.fill();
-    }
-
-    // Game loop
-    function gameLoop() {
-      if (!gameActive) return;
-      
-      const { dx, dy } = getMovement();
-      const newX = player.x + dx;
-      const newY = player.y + dy;
-      
-      // Check boundaries and walls
-      if (newX >= 0 && newX < GRID_COLS && 
-          newY >= 0 && newY < GRID_ROWS && 
-          maze[newY][newX] === 1) {
-        player.x = newX;
-        player.y = newY;
-        
-        // Check for pellets
-        if (pellets[newY][newX] === 1) {
-          pellets[newY][newX] = 0;
-          score += 10;
-          scoreDisplay.textContent = `SCORE: ${score}`;
-        }
-      }
-      
-      drawGame();
-      requestAnimationFrame(gameLoop);
-    }
-
-    // Keyboard controls
-    const keys = {};
-    document.addEventListener('keydown', (e) => {
-      keys[e.key] = true;
-      
-      // Manual movement when using keyboard
-      if (!useBluetooth && gameActive) {
-        let dx = 0, dy = 0;
-        if (keys['ArrowLeft']) dx = -1;
-        if (keys['ArrowRight']) dx = 1;
-        if (keys['ArrowUp']) dy = -1;
-        if (keys['ArrowDown']) dy = 1;
-        
-        const newX = player.x + dx;
-        const newY = player.y + dy;
-        
-        if (newX >= 0 && newX < GRID_COLS && 
-            newY >= 0 && newY < GRID_ROWS && 
-            maze[newY][newX] === 1) {
-          player.x = newX;
-          player.y = newY;
-          
-          if (pellets[newY][newX] === 1) {
-            pellets[newY][newX] = 0;
-            score += 10;
-            scoreDisplay.textContent = `SCORE: ${score}`;
-          }
-        }
-      }
-    });
-
-    document.addEventListener('keyup', (e) => {
-      keys[e.key] = false;
-    });
-
-    // Event listeners
+    // Event listener
     document.getElementById('connectBtn').addEventListener('click', connectBluetooth);
-    document.getElementById('keyboardBtn').addEventListener('click', useKeyboard);
 
     // Initial draw
-    drawGame();
+    draw();
   </script>
 </body>
 </html>
