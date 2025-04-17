@@ -1,8 +1,58 @@
-<script>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Compass Controller</title>
+  <style>
+    body {
+      background: black;
+      text-align: center;
+      color: white;
+      font-family: Arial;
+      margin: 0;
+      padding: 20px;
+    }
+    canvas {
+      background: #111;
+      display: block;
+      margin: 20px auto;
+      border: 2px solid #333;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #data {
+      color: #0FF;
+      font-family: monospace;
+      margin: 10px;
+      min-height: 20px;
+    }
+    #instructions {
+      color: #AAA;
+      margin: 15px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Compass Controller</h1>
+  <div id="instructions">Connect your Arduino and tilt it to move the dot</div>
+  <button id="connectBtn">CONNECT BLUETOOTH</button>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div id="data">Status: Waiting for connection...</div>
+
+  <script>
     // Canvas setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const dataDisplay = document.getElementById('data');
+    const connectBtn = document.getElementById('connectBtn');
 
     // Player dot
     const dot = {
@@ -27,51 +77,61 @@
       requestAnimationFrame(update);
     }
 
-    // Bluetooth connection
-    async function connectBluetooth() {
-      try {
-        const port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-        const reader = port.readable.getReader();
-        
-        dataDisplay.textContent = "Connected! Tilt your Arduino...";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          
-          const text = new TextDecoder().decode(value).trim();
-          
-          // Parse the exact format your Arduino sends: "X,Y"
-          if (text.includes(',')) {
-            const [xStr, yStr] = text.split(',');
-            const x = parseInt(xStr);
-            const y = parseInt(yStr.split(' ')[0]); // Handle any extra text
-            
-            if (!isNaN(x) && !isNaN(y)) {
-              // Map compass values (-2000 to 2000) to screen position
-              dot.x = Math.max(dot.size, Math.min(canvas.width - dot.size, 
-                mapValue(x, -2000, 2000, 0, canvas.width)));
-              dot.y = Math.max(dot.size, Math.min(canvas.height - dot.size, 
-                mapValue(y, -2000, 2000, 0, canvas.height)));
-              
-              dataDisplay.textContent = `X: ${x}, Y: ${y}`;
-            }
-          }
-        }
-      } catch (err) {
-        dataDisplay.textContent = `Error: ${err.message}`;
-      }
-    }
-
     // Helper to map value ranges
     function mapValue(value, inMin, inMax, outMin, outMax) {
       return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
     }
 
+    // Bluetooth connection
+    async function connectBluetooth() {
+      try {
+        if (!navigator.serial) {
+          throw new Error("Web Serial API not supported in this browser. Try Chrome or Edge.");
+        }
+        
+        dataDisplay.textContent = "Status: Selecting device...";
+        connectBtn.disabled = true;
+        
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        const reader = port.readable.getReader();
+        
+        dataDisplay.textContent = "Status: Connected! Tilt your Arduino...";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            dataDisplay.textContent = "Status: Connection closed";
+            break;
+          }
+          
+          const text = new TextDecoder().decode(value).trim();
+          dataDisplay.textContent = `Data: ${text}`;
+          
+          // Parse the exact format your Arduino sends: "X,Y"
+          if (text.includes(',')) {
+            const parts = text.split(',');
+            const x = parseInt(parts[0]);
+            const y = parseInt(parts[1]);
+            
+            if (!isNaN(x) && !isNaN(y)) {
+              // Map compass values to screen position
+              dot.x = mapValue(x, -2000, 2000, dot.size, canvas.width - dot.size);
+              dot.y = mapValue(y, -2000, 2000, dot.size, canvas.height - dot.size);
+            }
+          }
+        }
+      } catch (err) {
+        dataDisplay.textContent = `Error: ${err.message}`;
+        connectBtn.disabled = false;
+      }
+    }
+
     // Event listener
-    document.getElementById('connectBtn').addEventListener('click', connectBluetooth);
+    connectBtn.addEventListener('click', connectBluetooth);
 
     // Start animation
     update();
-</script>
+  </script>
+</body>
+</html>
