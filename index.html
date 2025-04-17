@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ball Game</title>
+  <style>
+    canvas {
+      background: black;
+      display: block;
+      margin: 20px auto;
+    }
+    button {
+      display: block;
+      margin: 10px auto;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <button id="connectBtn">Connect to Arduino</button>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const connectBtn = document.getElementById("connectBtn");
+
+    let x = 200, y = 200;
+    const radius = 15;
+
+    async function connectSerial() {
+      try {
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        const reader = port.readable.getReader();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const text = new TextDecoder().decode(value).trim();
+          const [newX, newY] = text.split(',').map(Number);
+          if (!isNaN(newX) && !isNaN(newY)) {
+            x = newX;
+            y = newY;
+          }
+        }
+      } catch (err) {
+        alert("Error: " + err);
+        console.error(err);
+      }
+    }
+
+    connectBtn.addEventListener("click", connectSerial);
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = "red";
+      ctx.fill();
+      ctx.closePath();
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
