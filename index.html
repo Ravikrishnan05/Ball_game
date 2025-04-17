@@ -1,66 +1,232 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Ball Game</title>
+  <title>Pac-Man Bluetooth</title>
   <style>
     canvas {
       background: black;
       display: block;
       margin: 20px auto;
+      border: 2px solid white;
     }
     button {
       display: block;
       margin: 10px auto;
       padding: 10px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #score {
+      color: white;
+      text-align: center;
+      font-family: Arial;
     }
   </style>
 </head>
 <body>
-  <button id="connectBtn">Connect to Arduino</button>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div id="score">SCORE: 0</div>
+  <button id="connectBtn">Connect Bluetooth</button>
+  <canvas id="gameCanvas" width="560" height="620"></canvas>
 
   <script>
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-    const connectBtn = document.getElementById("connectBtn");
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const CELL_SIZE = 20;
+    const GRID_COLS = 28, GRID_ROWS = 31;
+    
+    // Game state
+    let player = { x: 2, y: 2 };
+    let score = 0;
+    let maze = initializeMaze();
+    let pellets = initializePellets();
+    let ghosts = [
+      { x: 13, y: 14, color: '#FF0000' },
+      { x: 14, y: 14, color: '#00FFFF' }
+    ];
 
-    let x = 200, y = 200;
-    const radius = 15;
+    // Bluetooth variables
+    let serialPort;
+    let reader;
+    let rawX = 0, rawY = 0;
 
-    async function connectSerial() {
+    function initializeMaze() {
+      // Same maze structure as Python version
+      const maze = Array(GRID_ROWS).fill().map(() => Array(GRID_COLS).fill(1));
+      
+      // Add walls (implementation similar to Python code)
+      // ... (add your maze walls logic here) ...
+      
+      return maze;
+    }
+
+    function initializePellets() {
+      return Array(GRID_ROWS).fill().map(() => Array(GRID_COLS).fill(1));
+    }
+
+    async function connectBluetooth() {
       try {
-        const port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-        const reader = port.readable.getReader();
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate: 9600 });
+        reader = serialPort.readable.getReader();
+        readSerialData();
+      } catch (err) {
+        alert('Bluetooth connection error: ' + err.message);
+      }
+    }
 
+    async function readSerialData() {
+      try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           const text = new TextDecoder().decode(value).trim();
-          const [newX, newY] = text.split(',').map(Number);
-          if (!isNaN(newX) && !isNaN(newY)) {
-            x = newX;
-            y = newY;
+          const [x, y] = text.split(',').map(Number);
+          if (!isNaN(x) && !isNaN(y)) {
+            rawX = -x;  // Invert X axis if needed
+            rawY = y;
           }
         }
       } catch (err) {
-        alert("Error: " + err);
-        console.error(err);
+        console.error('Serial read error:', err);
       }
     }
 
-    connectBtn.addEventListener("click", connectSerial);
-
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = "red";
-      ctx.fill();
-      ctx.closePath();
-      requestAnimationFrame(draw);
+    function getDirection() {
+      const DEADZONE = 1000;
+      const angle = Math.atan2(rawY, rawX);
+      
+      if (Math.abs(rawX) < DEADZONE && Math.abs(rawY) < DEADZONE) {
+        return { dx: 0, dy: 0 };
+      }
+      
+      return {
+        dx: Math.round(Math.cos(angle)),
+        dy: Math.round(Math.sin(angle))
+      };
     }
 
+    function movePlayer() {
+      const { dx, dy } = getDirection();
+      const newX = player.x + dx;
+      const newY = player.y + dy;
+
+      if (newX >= 0 && newX < GRID_COLS && 
+          newY >= 0 && newY < GRID_ROWS && 
+          maze[newY][newX] === 1) {
+        player.x = newX;
+        player.y = newY;
+        
+        if (pellets[newY][newX] === 1) {
+          pellets[newY][newX] = 0;
+          score += 10;
+          document.getElementById('score').textContent = `SCORE: ${score}`;
+        }
+      }
+    }
+
+    function moveGhosts() {
+      ghosts.forEach(ghost => {
+        const directions = [];
+        if (Math.random() < 0.6) {  // 60% chance to chase player
+          if (player.x > ghost.x) directions.push([1, 0]);
+          if (player.x < ghost.x) directions.push([-1, 0]);
+          if (player.y > ghost.y) directions.push([0, 1]);
+          if (player.y < ghost.y) directions.push([0, -1]);
+        }
+        directions.push(...[[1,0], [-1,0], [0,1], [0,-1]]);
+        
+        for (const [dx, dy] of directions.sort(() => Math.random() - 0.5)) {
+          const newX = ghost.x + dx;
+          const newY = ghost.y + dy;
+          if (maze[newY]?.[newX] === 1) {
+            ghost.x = newX;
+            ghost.y = newY;
+            break;
+          }
+        }
+      });
+    }
+
+    function checkCollisions() {
+      return ghosts.some(ghost => 
+        ghost.x === player.x && ghost.y === player.y
+      );
+    }
+
+    function drawGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw maze
+      maze.forEach((row, y) => row.forEach((cell, x) => {
+        if (cell === 0) {
+          ctx.fillStyle = '#0000FF';
+          ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        }
+      }));
+      
+      // Draw pellets
+      pellets.forEach((row, y) => row.forEach((pellet, x) => {
+        if (pellet === 1) {
+          ctx.fillStyle = 'white';
+          ctx.beginPath();
+          ctx.arc(
+            x * CELL_SIZE + CELL_SIZE/2,
+            y * CELL_SIZE + CELL_SIZE/2,
+            3, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+      }));
+      
+      // Draw ghosts
+      ghosts.forEach(ghost => {
+        ctx.fillStyle = ghost.color;
+        ctx.beginPath();
+        ctx.arc(
+          ghost.x * CELL_SIZE + CELL_SIZE/2,
+          ghost.y * CELL_SIZE + CELL_SIZE/2,
+          CELL_SIZE/2 - 2, 0, Math.PI * 2
+        );
+        ctx.fill();
+      });
+      
+      // Draw Pac-Man
+      ctx.fillStyle = 'yellow';
+      ctx.beginPath();
+      ctx.arc(
+        player.x * CELL_SIZE + CELL_SIZE/2,
+        player.y * CELL_SIZE + CELL_SIZE/2,
+        CELL_SIZE/2 - 2, 0.2 * Math.PI, 1.8 * Math.PI
+      );
+      ctx.lineTo(
+        player.x * CELL_SIZE + CELL_SIZE/2,
+        player.y * CELL_SIZE + CELL_SIZE/2
+      );
+      ctx.fill();
+    }
+
+    function gameLoop() {
+      movePlayer();
+      moveGhosts();
+      drawGame();
+      
+      if (checkCollisions()) {
+        alert('GAME OVER!');
+        window.location.reload();
+      }
+      
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Event listeners
+    document.getElementById('connectBtn').addEventListener('click', connectBluetooth);
+    gameLoop();
+  </script>
+</body>
+</html>
     draw();
   </script>
 </body>
