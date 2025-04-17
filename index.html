@@ -1,42 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Compass Controller</title>
-  <style>
-    body {
-      background: black;
-      text-align: center;
-      color: white;
-      font-family: Arial;
-    }
-    canvas {
-      background: #111;
-      display: block;
-      margin: 20px auto;
-      border: 2px solid #333;
-    }
-    button {
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      margin: 10px;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #data {
-      color: #0FF;
-      font-family: monospace;
-    }
-  </style>
-</head>
-<body>
-  <h1>Compass Controller</h1>
-  <button id="connectBtn">CONNECT BLUETOOTH</button>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
-  <div id="data">Waiting for data...</div>
-
-  <script>
+<script>
     // Canvas setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -89,9 +51,9 @@
             if (!isNaN(x) && !isNaN(y)) {
               // Map compass values (-2000 to 2000) to screen position
               dot.x = Math.max(dot.size, Math.min(canvas.width - dot.size, 
-                mapValue(x, -2000, 2000, 0, canvas.width));
+                mapValue(x, -2000, 2000, 0, canvas.width)));
               dot.y = Math.max(dot.size, Math.min(canvas.height - dot.size, 
-                mapValue(y, -2000, 2000, 0, canvas.height));
+                mapValue(y, -2000, 2000, 0, canvas.height)));
               
               dataDisplay.textContent = `X: ${x}, Y: ${y}`;
             }
@@ -112,6 +74,4 @@
 
     // Start animation
     update();
-  </script>
-</body>
-</html>
+</script>
