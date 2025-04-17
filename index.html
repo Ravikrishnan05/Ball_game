@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simple Bluetooth Controller</title>
+  <title>Compass Controller</title>
   <style>
     body {
       background: black;
@@ -24,16 +24,15 @@
       border-radius: 5px;
       cursor: pointer;
     }
-    #status {
-      color: #FF0;
-      height: 20px;
+    #data {
+      color: #0FF;
+      font-family: monospace;
     }
   </style>
 </head>
 <body>
-  <h1>Bluetooth Controller Test</h1>
-  <div id="status">Press CONNECT to start</div>
-  <button id="connectBtn">CONNECT</button>
+  <h1>Compass Controller</h1>
+  <button id="connectBtn">CONNECT BLUETOOTH</button>
   <canvas id="gameCanvas" width="400" height="400"></canvas>
   <div id="data">Waiting for data...</div>
 
@@ -41,74 +40,69 @@
     // Canvas setup
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const statusDisplay = document.getElementById('status');
     const dataDisplay = document.getElementById('data');
 
     // Player dot
-    const player = {
+    const dot = {
       x: 200,
       y: 200,
-      size: 20,
+      size: 15,
       color: '#FFFF00'
     };
 
-    // Draw player
-    function drawPlayer() {
-      ctx.fillStyle = player.color;
+    // Draw the dot
+    function drawDot() {
+      ctx.fillStyle = dot.color;
       ctx.beginPath();
-      ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+      ctx.arc(dot.x, dot.y, dot.size, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // Clear and redraw
-    function draw() {
+    function update() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawPlayer();
+      drawDot();
+      requestAnimationFrame(update);
     }
 
     // Bluetooth connection
     async function connectBluetooth() {
       try {
-        if (!navigator.serial) {
-          throw new Error("Browser doesn't support Web Serial API");
-        }
-        
         const port = await navigator.serial.requestPort();
         await port.open({ baudRate: 9600 });
         const reader = port.readable.getReader();
         
-        statusDisplay.textContent = "Connected! Tilt your Arduino";
-        dataDisplay.textContent = "Receiving data...";
+        dataDisplay.textContent = "Connected! Tilt your Arduino...";
 
-        // Continuous data reading
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           
           const text = new TextDecoder().decode(value).trim();
-          dataDisplay.textContent = `Raw Data: ${text}`;
           
-          // Simple X,Y data parsing (format "X,Y")
-          const [x, y] = text.split(',').map(Number);
-          
-          if (!isNaN(x) && !isNaN(y)) {
-            // Map Arduino values to screen position
-            player.x = mapValue(x, -1000, 1000, 0, canvas.width);
-            player.y = mapValue(y, -1000, 1000, 0, canvas.height);
+          // Parse the exact format your Arduino sends: "X,Y"
+          if (text.includes(',')) {
+            const [xStr, yStr] = text.split(',');
+            const x = parseInt(xStr);
+            const y = parseInt(yStr.split(' ')[0]); // Handle any extra text
             
-            // Keep player on screen
-            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
-            
-            draw();
+            if (!isNaN(x) && !isNaN(y)) {
+              // Map compass values (-2000 to 2000) to screen position
+              dot.x = Math.max(dot.size, Math.min(canvas.width - dot.size, 
+                mapValue(x, -2000, 2000, 0, canvas.width));
+              dot.y = Math.max(dot.size, Math.min(canvas.height - dot.size, 
+                mapValue(y, -2000, 2000, 0, canvas.height));
+              
+              dataDisplay.textContent = `X: ${x}, Y: ${y}`;
+            }
           }
         }
       } catch (err) {
-        statusDisplay.textContent = `Error: ${err.message}`;
+        dataDisplay.textContent = `Error: ${err.message}`;
       }
     }
 
-    // Helper function to map values
+    // Helper to map value ranges
     function mapValue(value, inMin, inMax, outMin, outMax) {
       return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
     }
@@ -116,8 +110,8 @@
     // Event listener
     document.getElementById('connectBtn').addEventListener('click', connectBluetooth);
 
-    // Initial draw
-    draw();
+    // Start animation
+    update();
   </script>
 </body>
 </html>
