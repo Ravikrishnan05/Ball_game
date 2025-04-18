@@ -1,137 +1,66 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Compass Controller</title>
+  <title>BLE Dot Controller</title>
   <style>
-    body {
-      background: black;
-      text-align: center;
-      color: white;
-      font-family: Arial;
-      margin: 0;
-      padding: 20px;
-    }
-    canvas {
-      background: #111;
-      display: block;
-      margin: 20px auto;
-      border: 2px solid #333;
-    }
-    button {
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      margin: 10px;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 16px;
-    }
-    #data {
-      color: #0FF;
-      font-family: monospace;
-      margin: 10px;
-      min-height: 20px;
-    }
-    #instructions {
-      color: #AAA;
-      margin: 15px;
-      font-size: 14px;
-    }
+    canvas { background: black; display: block; margin: auto; }
+    button { display: block; margin: 10px auto; padding: 10px; }
+    body { text-align: center; color: white; background: #222; }
   </style>
 </head>
 <body>
-  <h1>Compass Controller</h1>
-  <div id="instructions">Connect your Arduino and tilt it to move the dot</div>
-  <button id="connectBtn">CONNECT BLUETOOTH</button>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
-  <div id="data">Status: Waiting for connection...</div>
+  <h1>BLE Ball Controller</h1>
+  <button onclick="connect()">Connect to HM-10</button>
+  <canvas id="canvas" width="400" height="400"></canvas>
 
   <script>
-    // Canvas setup
-    const canvas = document.getElementById('gameCanvas');
+    const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const dataDisplay = document.getElementById('data');
-    const connectBtn = document.getElementById('connectBtn');
+    let x = 200, y = 200;
 
-    // Player dot
-    const dot = {
-      x: 200,
-      y: 200,
-      size: 15,
-      color: '#FFFF00'
-    };
-
-    // Draw the dot
-    function drawDot() {
-      ctx.fillStyle = dot.color;
-      ctx.beginPath();
-      ctx.arc(dot.x, dot.y, dot.size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Clear and redraw
-    function update() {
+    function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawDot();
-      requestAnimationFrame(update);
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "lime";
+      ctx.fill();
+      requestAnimationFrame(draw);
     }
 
-    // Helper to map value ranges
-    function mapValue(value, inMin, inMax, outMin, outMax) {
-      return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
-    }
-
-    // Bluetooth connection
-    async function connectBluetooth() {
+    async function connect() {
       try {
-        if (!navigator.serial) {
-          throw new Error("Web Serial API not supported in this browser. Try Chrome or Edge.");
-        }
-        
-        dataDisplay.textContent = "Status: Selecting device...";
-        connectBtn.disabled = true;
-        
-        const port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-        const reader = port.readable.getReader();
-        
-        dataDisplay.textContent = "Status: Connected! Tilt your Arduino...";
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'HM' }],
+          optionalServices: [0xffe0]  // HM-10 uses custom service
+        });
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {
-            dataDisplay.textContent = "Status: Connection closed";
-            break;
-          }
-          
-          const text = new TextDecoder().decode(value).trim();
-          dataDisplay.textContent = `Data: ${text}`;
-          
-          // Parse the exact format your Arduino sends: "X,Y"
-          if (text.includes(',')) {
-            const parts = text.split(',');
-            const x = parseInt(parts[0]);
-            const y = parseInt(parts[1]);
-            
-            if (!isNaN(x) && !isNaN(y)) {
-              // Map compass values to screen position
-              dot.x = mapValue(x, -2000, 2000, dot.size, canvas.width - dot.size);
-              dot.y = mapValue(y, -2000, 2000, dot.size, canvas.height - dot.size);
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(0xffe0);
+        const characteristic = await service.getCharacteristic(0xffe1);
+
+        await characteristic.startNotifications();
+        characteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const decoder = new TextDecoder('utf-8');
+          const value = decoder.decode(event.target.value);
+          const parts = value.trim().split(',');
+          if (parts.length === 2) {
+            let newX = parseInt(parts[0]);
+            let newY = parseInt(parts[1]);
+            if (!isNaN(newX) && !isNaN(newY)) {
+              x = Math.min(390, Math.max(10, newX));  // bounds
+              y = Math.min(390, Math.max(10, newY));
             }
           }
-        }
-      } catch (err) {
-        dataDisplay.textContent = `Error: ${err.message}`;
-        connectBtn.disabled = false;
+        });
+
+        alert("Connected to HM-10!");
+      } catch (error) {
+        alert("Connection failed: " + error);
+        console.error(error);
       }
     }
 
-    // Event listener
-    connectBtn.addEventListener('click', connectBluetooth);
-
-    // Start animation
-    update();
+    draw();
   </script>
 </body>
 </html>
